@@ -112,12 +112,12 @@ sentence-transformers and the GPT-2 tokenizer instead.
 ## Citation
 
 ```bibtex
-@inproceedings{liu2026semantic,
-  author    = {Liu, Xutong and Atalar, Baran and Dai, Xiangxiang and Zuo, Jinhang and Wang, Siwei and Lui, John C.S. and Chen, Wei and Joe-Wong, Carlee},
-  title     = {Semantic Caching for Low-Cost {LLM} Serving: From Offline Learning to Online Adaptation},
-  booktitle = {IEEE INFOCOM 2026 - IEEE Conference on Computer Communications},
+@inproceedings{,
+  author    = {chengxiaotong},
+  title     = {Semantic Caching under Memory Budgets for LLM Serving},
+  booktitle = {},
   year      = {2026},
   pages     = {1-10},
-  doi       = {10.1109/INFOCOM59046.2026.11571467}
+  doi       = {}
 }
 ```
