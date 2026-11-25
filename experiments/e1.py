@@ -30,7 +30,8 @@ DEFAULT_ALPHA = (1 - np.exp(-1)) / 2
 
 def run_experiment(*, n_queries=20, horizon=200, runs=10, budget_fraction=0.25,
                    budget=None, algorithms=DEFAULT_ALGORITHMS, arrival="uniform",
-                   alpha=DEFAULT_ALPHA, epsilon=0.15, seed=0, vsocb_growth=1.0):
+                   alpha=DEFAULT_ALPHA, epsilon=0.15, seed=0, vsocb_growth=1.0, vsocb_oracle='auto',
+                   ombsc_confidence_scale=1.0):
     """Pair environment inputs across policies; use truth only for evaluation."""
     if horizon < 2 or runs < 1 or not 2 <= n_queries <= 20 or seed < 0:
         raise ValueError("require horizon >= 2, runs >= 1, 2 <= queries <= 20, seed >= 0")
@@ -38,6 +39,10 @@ def run_experiment(*, n_queries=20, horizon=200, runs=10, budget_fraction=0.25,
         raise ValueError("require alpha in (0,1] and epsilon in [0,1]")
     if not np.isfinite(vsocb_growth) or vsocb_growth <= 0:
         raise ValueError("VSOCB growth must be finite and positive")
+    if not np.isfinite(ombsc_confidence_scale) or ombsc_confidence_scale <= 0:
+        raise ValueError('ombsc_confidence_scale must be finite and positive')
+    if vsocb_oracle not in ('auto', 'exact', 'approx'):
+        raise ValueError('vsocb_oracle must be auto, exact or approx')
     if budget is not None and (not np.isfinite(budget) or budget <= 0):
         raise ValueError("budget must be finite and positive")
     if not 0 < budget_fraction <= 1:
@@ -62,7 +67,8 @@ def run_experiment(*, n_queries=20, horizon=200, runs=10, budget_fraction=0.25,
         stream = random.Random(trial).choices(range(prob.m), weights=prob.p, k=horizon)
         for name in names:
             policy = create_policy(name, mode="online", seed=trial, epsilon=epsilon,
-                                   vsocb_growth=vsocb_growth)
+                                   vsocb_growth=vsocb_growth, vsocb_oracle=vsocb_oracle,
+                                   ombsc_confidence_scale=ombsc_confidence_scale)
             agent = policy.make_agent(prob, storage, horizon, delta)
             result = run_online_agent(prob, storage, horizon, delta, trial, agent=agent,
                                       stream=stream, paired_noise=True)
@@ -85,6 +91,8 @@ def run_experiment(*, n_queries=20, horizon=200, runs=10, budget_fraction=0.25,
                 "population_entry_count": int(result.population_entries.sum()),
                 "total_selection_runtime_s": result.total_selection_runtime,
                 "oracle_calls": result.oracle_calls,
+                'vsocb_exact_oracle_calls': policy.oracle_usage['exact'] if name == 'VSOCB-Semantic' else None,
+                'vsocb_approx_oracle_calls': policy.oracle_usage['approx'] if name == 'VSOCB-Semantic' else None,
                 "revealed_candidates": result.revealed_candidates,
                 "entry_sizes": sizes.tolist(), "query_stream": result.query_stream.tolist(),
                 "actions": result.actions,
@@ -109,9 +117,13 @@ def run_experiment(*, n_queries=20, horizon=200, runs=10, budget_fraction=0.25,
             "arrival": arrival, "arrival_probabilities": prob.p.tolist(),
             "alpha": float(alpha), "delta": delta, "epsilon": epsilon,
             "vsocb_growth": float(vsocb_growth),
+            'vsocb_oracle': vsocb_oracle,
+            'vsocb_approximation': 'Appendix A complement oracle; min-knapsack 2-approximation (beta=1); not a semantic guarantee',
             "vsocb_source": "https://aclanthology.org/2026.emnlp-main.1849.pdf",
-            "vsocb_adaptation": "paper LCBs and additive knapsack; recommend-and-wait; common semantic serving/loss/switching",
+            "vsocb_adaptation": "paper LCBs; exact additive or approximate complementary min-knapsack; recommend-and-wait; common semantic serving/loss/switching",
             "cost_noise_proxy": SIGMA,
+            'ombsc_confidence_scale': float(ombsc_confidence_scale),
+            'ombsc_confidence_note': 'scales only OMBSC confidence; scale < 1 is empirical and does not inherit the original confidence guarantee',
             "noise_pairing": "independent per-query streams, paired by query and service-call index",
             "query_source": "bundled reference_data; normalized sizes and synthetic answers",
             "benchmark": "exact full-Q budgeted optimum, evaluation only",
@@ -124,7 +136,7 @@ def run_experiment(*, n_queries=20, horizon=200, runs=10, budget_fraction=0.25,
                 "Epsilon-Greedy": "mean cost + epsilon-random reverse-greedy deletion, per-round updates",
                 "LFU": "frequency-first feasible packing, empirical mean for serving, per-round updates",
                 "CUCB-SC": "UCB + memory-budget reverse greedy, per-round updates",
-                "VSOCB-Semantic": "paper cost/probability LCBs + exact additive knapsack, multiplicative triggers, recommend-and-wait",
+                "VSOCB-Semantic": "paper cost/probability LCBs + exact/approximate oracle, multiplicative triggers, recommend-and-wait",
             },
         },
         "runs": rows,
@@ -175,7 +187,8 @@ def plot_results(payload, path):
         ax.legend(fontsize=8)
     axes[0, 0].axhline(0, color="gray", linewidth=0.6)
     budgets = [row["budget"] for row in payload["runs"]]
-    fig.suptitle(f"e1: fixed budget B={budgets[0]:.3g}, {payload['config']['arrival']} arrivals")
+    fig.suptitle(f"e1: fixed budget B={budgets[0]:.3g}, {payload['config']['arrival']} arrivals, "
+                 f"OMBSC confidence={payload['config'].get('ombsc_confidence_scale', 1.):g}")
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)
@@ -196,6 +209,10 @@ def main():
     parser.add_argument("--epsilon", type=float, default=0.15)
     parser.add_argument("--vsocb-growth", type=float, default=1.0,
                         help="VSOCB multiplicative trigger growth; distinct from regret alpha")
+    parser.add_argument('--vsocb-oracle', choices=('auto', 'exact', 'approx'), default='auto',
+                        help='exact additive knapsack or Appendix A complementary approximation')
+    parser.add_argument('--ombsc-confidence-scale', type=float, default=1.0,
+                        help='OMBSC confidence-radius multiplier; leaves environment noise unchanged')
     parser.add_argument("--algorithms", nargs="+", choices=tuple(ALGORITHMS), default=list(DEFAULT_ALGORITHMS))
     parser.add_argument("--out", type=Path, default=Path("results/e1"))
     args = parser.parse_args()
@@ -204,7 +221,8 @@ def main():
                                  runs=2 if args.quick else args.runs, budget=args.budget,
                                  budget_fraction=args.budget_fraction, algorithms=args.algorithms,
                                  arrival=args.arrival, alpha=args.alpha, epsilon=args.epsilon, seed=args.seed,
-                                 vsocb_growth=args.vsocb_growth)
+                                 vsocb_growth=args.vsocb_growth, vsocb_oracle=args.vsocb_oracle,
+                                 ombsc_confidence_scale=args.ombsc_confidence_scale)
     except ValueError as exc:
         parser.error(str(exc))
     save_results(payload, args.out)

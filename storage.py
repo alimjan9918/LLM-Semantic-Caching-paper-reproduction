@@ -8,6 +8,21 @@ from objective import _indices
 
 
 @dataclass(frozen=True)
+class RevealedStorage:
+    """Policy view: the budget and sizes already observed through service."""
+
+    budget: float
+    recorded_sizes: np.ndarray
+
+    def used(self, cache):
+        return float(sum(self.recorded_sizes[q] for q in _indices(cache)))
+
+    def feasible(self, cache, tol=1e-9):
+        used = self.used(cache)
+        return bool(np.isfinite(used) and used <= self.budget + tol)
+
+
+@dataclass(frozen=True)
 class OnlineStorageModel:
     """Hidden query/answer sizes used to reveal ``S(q)=L(q)+A(q)`` online."""
 

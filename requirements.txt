@@ -1,2 +1,6 @@
 numpy>=1.22
 matplotlib>=3.5
+pandas>=2.2
+onnxruntime>=1.18
+tokenizers>=0.20
+huggingface-hub>=0.26

@@ -1,0 +1,25 @@
+{
+  "source": "C:\\Users\\cheng\\.codex\\.chatgpt-projects\\g-p-6aa365b0fe5081919d873d3c0709d8c5\\semantic_caching_2026-11-23\\code\\real-world-dataset\\routerbench_0shot.pkl",
+  "source_sha256": "ba4f77f19517610a707c374e99322d7750c30fc4ae7ff5527888595a1e65d36d",
+  "source_repository": "https://huggingface.co/datasets/withmartian/routerbench",
+  "model": "gpt-4-1106-preview",
+  "n_queries": 36481,
+  "seed": 0,
+  "eval_name": null,
+  "sampling": "all valid distinct prompts in source order",
+  "storage_unit": "UTF-8 bytes",
+  "cost_unit": "recorded historical estimated USD",
+  "cleaning": "drop missing/empty text, nonfinite/nonpositive costs; deduplicate prompt, keep first",
+  "columns": [
+    "query_id",
+    "sample_id",
+    "eval_name",
+    "model",
+    "prompt",
+    "answer",
+    "cost_usd",
+    "query_bytes",
+    "answer_bytes",
+    "storage_bytes"
+  ]
+}

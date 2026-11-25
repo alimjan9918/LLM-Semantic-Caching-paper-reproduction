@@ -11,7 +11,7 @@ def sample_serving_cost(mean: float, rng, sigma: float = SIGMA) -> float:
     The amplitude shrinks near the boundaries, so sigma bounds the noise
     rather than specifying its standard deviation for every query.
     """
-    if not 0 <= mean <= 1 or sigma < 0:
+    if not 0 <= mean <= 1 or not np.isfinite(sigma) or sigma < 0:
         raise ValueError("cost mean must be in [0, 1] and sigma non-negative")
     amplitude = min(sigma, mean, 1.0 - mean)
     return float(mean + amplitude * rng.choice([-1.0, 1.0]))
@@ -23,6 +23,8 @@ def ombsc_confidence_costs(
     horizon: int,
     n_queries: int,
     delta: float,
+    *,
+    sigma: float = SIGMA,
 ) -> np.ndarray:
     """Equation (4): optimistic cost in the online OMBSC algorithm."""
     observations = np.asarray(observations, dtype=float)
@@ -34,7 +36,7 @@ def ombsc_confidence_costs(
         out=np.zeros_like(total_cost, dtype=float),
         where=seen,
     )
-    radius = SIGMA * np.sqrt(
+    radius = sigma * np.sqrt(
         2.0
         * np.log(4.0 * n_queries * horizon**3 / delta)
         / np.maximum(observations, 1.0)

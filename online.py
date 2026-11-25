@@ -5,9 +5,34 @@ import random
 import time
 from dataclasses import dataclass
 from data import ReferenceProblem
-from storage import OnlineStorageModel
+from storage import OnlineStorageModel, RevealedStorage
 from objective import cache_loss, nearest_distance
-from estimation import sample_serving_cost
+from estimation import SIGMA, sample_serving_cost
+
+
+@dataclass(frozen=True)
+class QuerySpace:
+    """Public query geometry; population frequencies and costs are hidden."""
+    m: int
+    dist: np.ndarray
+
+
+@dataclass
+class ServingEnvironment:
+    """Truth and answer sizes belong to the simulator, not the cache policy."""
+    problem: ReferenceProblem
+    storage: OnlineStorageModel
+    noise_sigma: float
+
+    def serve(self, q, rng):
+        return (sample_serving_cost(float(self.problem.cost[q]), rng, self.noise_sigma),
+                self.storage.entry_size(q))
+
+    def loss(self, cache, gamma):
+        return cache_loss(cache, self.problem.p, self.problem.cost, self.problem.dist, gamma=gamma)
+
+    def switching_cost(self, entries):
+        return float(sum(self.problem.cost[q] for q in entries))
 
 
 @dataclass
@@ -58,13 +83,17 @@ class OnlineAgent:
         delta: float,
         *,
         gamma: float = 1.0,
+        noise_sigma: float = SIGMA,
     ):
         if horizon <= 0:
             raise ValueError("horizon must be positive")
         if not 0 < delta < 1:
             raise ValueError("delta must lie in (0, 1)")
-        self.problem = problem
-        self.storage = storage
+        if not np.isfinite(noise_sigma) or noise_sigma < 0:
+            raise ValueError("noise_sigma must be finite and non-negative")
+        self.noise_sigma = float(noise_sigma)
+        self._environment = ServingEnvironment(problem, storage, self.noise_sigma)
+        self.problem = QuerySpace(problem.m, problem.dist)
         self.horizon = int(horizon)
         self.delta = float(delta)
         self.gamma = float(gamma)
@@ -78,6 +107,7 @@ class OnlineAgent:
         self.cache: set[int] = set()
         self.candidates: set[int] = set()
         self.storage_sizes = np.full(n, np.nan)
+        self.storage = RevealedStorage(storage.budget, self.storage_sizes)
         self.oracle_calls = 0
 
     def step(
@@ -99,8 +129,8 @@ class OnlineAgent:
         llm_calls = 0
 
         if fresh:
-            realized_cost = sample_serving_cost(float(self.problem.cost[q]), rng)
-            self.storage_sizes[q] = self.storage.entry_size(q)
+            realized_cost, size = self._environment.serve(q, rng)
+            self.storage_sizes[q] = size
             self.candidates.add(q)
             self.observations[q] += 1
             self.total_cost[q] += realized_cost
@@ -111,13 +141,7 @@ class OnlineAgent:
             action = "cache"
             realized_cost = float(mismatch)
 
-        loss = cache_loss(
-            self.cache,
-            self.problem.p,
-            self.problem.cost,
-            self.problem.dist,
-            gamma=self.gamma,
-        )
+        loss = self._environment.loss(self.cache, self.gamma)
 
         switch = self._update_due()
 
@@ -128,7 +152,7 @@ class OnlineAgent:
         if t < self.horizon and switch:
             selected, selection_runtime = self._switch_cache(t)
             newly_added = selected - self.cache
-            switching_cost = float(sum(self.problem.cost[q] for q in newly_added))
+            switching_cost = self._environment.switching_cost(newly_added)
             # Population has an abstract switching penalty; it supplies no
             # additional serving-cost observations or simulated service calls.
             population_entries = len(newly_added)
@@ -164,8 +188,8 @@ class OnlineAgent:
 class PerRoundAgent(OnlineAgent):
     """Recompute a baseline cache after every served query."""
 
-    def __init__(self, problem, storage, horizon, delta, *, policy, gamma=1.0):
-        super().__init__(problem, storage, horizon, delta, gamma=gamma)
+    def __init__(self, problem, storage, horizon, delta, *, policy, gamma=1.0, noise_sigma=SIGMA):
+        super().__init__(problem, storage, horizon, delta, gamma=gamma, noise_sigma=noise_sigma)
         self.policy = policy
 
     def _switch_cache(self, t):
